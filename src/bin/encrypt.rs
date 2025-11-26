@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let password = &args[2];
 
     let encrypted = encrypt(plaintext, password)?;
-    println!("[Encrypted Text] {}", encrypted);
+    println!("[Encrypted Text] {encrypted}");
 
     Ok(())
 }

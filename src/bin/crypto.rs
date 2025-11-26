@@ -137,7 +137,7 @@ fn setup_logger() {
         .chain(std::io::stdout())
         .apply()
     {
-        log::error!("Logger initialization failed: {:?}", e);
+        log::error!("Logger initialization failed: {e:?}");
     }
 }
 
