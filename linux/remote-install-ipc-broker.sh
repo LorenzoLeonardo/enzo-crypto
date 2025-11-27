@@ -24,11 +24,14 @@ ssh -i $SSH_KEY_PATH $REMOTE_PC \
 
 echo "Copying new files to remote destination . . ."
 scp -i $SSH_KEY_PATH $PWD/target/release/$EXECUTABLE_NAME $REMOTE_PC:$REMOTE_DEST_DIR
+scp -i $SSH_KEY_PATH $PWD/target/release/rob $REMOTE_PC:$REMOTE_DEST_DIR
 scp -i $SSH_KEY_PATH $PWD/linux/systemd/$SERVICE_NAME $REMOTE_PC:$REMOTE_DEST_DIR
 
 # Set executable permission
 echo "Setting of permissions . . ."
-ssh -i $SSH_KEY_PATH $REMOTE_PC "chmod +x $REMOTE_DEST_DIR/$EXECUTABLE_NAME"
+ssh -i $SSH_KEY_PATH $REMOTE_PC \
+	"chmod +x $REMOTE_DEST_DIR/$EXECUTABLE_NAME; \
+	chmod +x $REMOTE_DEST_DIR/rob"
 
 # Install systemd of this service and run the webserver as service
 echo "Installing dependencies and systemd . . ."
