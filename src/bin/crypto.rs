@@ -7,7 +7,7 @@ use fern::Dispatch;
 use ipc_broker::worker::{SharedObject, WorkerBuilder};
 use log::LevelFilter;
 use serde_json::{Value, json};
-use simple_enc_dec::{decrypt, encrypt};
+use simple_enc_dec::{base52::Base52Codec, decrypt, encrypt};
 
 #[derive(serde::Deserialize)]
 struct Param {
@@ -56,6 +56,29 @@ impl Crypto {
             None
         }
     }
+
+    /// Base52 decode helper
+    fn decode_base52(input: &str) -> Value {
+        log::info!("Decoding base52 input: {input}");
+        let codec = Base52Codec;
+
+        Self::wrap_result(
+            codec
+                .decode(input)
+                .map(|bytes| bytes.into_iter().map(|b| b as char).collect::<String>()),
+        )
+    }
+
+    /// Base52 encode helper
+    fn encode_base52(input: &str) -> Value {
+        log::info!("Encoding base52 input: {input}");
+        let codec = Base52Codec;
+
+        json!({
+            "result": codec
+                .encode(input)
+        })
+    }
 }
 
 #[async_trait]
@@ -85,7 +108,8 @@ impl SharedObject for Crypto {
                 }
                 Crypto::wrap_result(decrypt(&param.input, &param.passphrase))
             }
-
+            "decode52" => Crypto::decode_base52(&param.input),
+            "encode52" => Crypto::encode_base52(&param.input),
             _ => {
                 let msg = format!("Unknown method called: {method}");
                 log::warn!("{msg}");
