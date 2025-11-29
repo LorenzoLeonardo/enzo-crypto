@@ -1,4 +1,5 @@
 pub mod base52;
+pub mod scrypt;
 
 use base64::{Engine as _, engine::general_purpose};
 
