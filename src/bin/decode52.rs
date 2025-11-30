@@ -5,7 +5,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() != 2 {
-        log::error!("Usage: {} <base52 string>", args[0]);
+        eprintln!("Usage: {} <base52 string>", args[0]);
         std::process::exit(1);
     }
 
@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let codec = Base52Codec;
 
     let decoded = codec.decode(std::borrow::Cow::Borrowed(base52))?; // Validate input
-    log::info!(
+    println!(
         "[Decoded Text] {}",
         decoded.iter().map(|&b| b as char).collect::<String>()
     );
