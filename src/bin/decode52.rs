@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let codec = Base52Codec;
 
-    let decoded = codec.decode(base52)?; // Validate input
+    let decoded = codec.decode(std::borrow::Cow::Borrowed(base52))?; // Validate input
     log::info!(
         "[Decoded Text] {}",
         decoded.iter().map(|&b| b as char).collect::<String>()
