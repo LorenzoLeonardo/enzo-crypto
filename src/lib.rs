@@ -3,9 +3,9 @@ pub mod scrypt;
 
 use base64::{Engine as _, engine::general_purpose};
 
+use anyhow::Result;
 use openssl::hash::{MessageDigest, hash};
 use openssl::symm::{Cipher, Crypter, Mode};
-use std::error::Error;
 
 fn derive_key(password: &str) -> Vec<u8> {
     // SHA-256 hash of password
@@ -14,7 +14,7 @@ fn derive_key(password: &str) -> Vec<u8> {
         .to_vec()
 }
 
-pub fn encrypt(plaintext: &str, password: &str) -> Result<String, Box<dyn Error>> {
+pub fn encrypt(plaintext: &str, password: &str) -> Result<String> {
     let key = derive_key(password);
     let iv = [0u8; 16]; // 16 zero bytes IV
 
@@ -32,7 +32,7 @@ pub fn encrypt(plaintext: &str, password: &str) -> Result<String, Box<dyn Error>
     Ok(general_purpose::STANDARD.encode(&ciphertext))
 }
 
-pub fn decrypt(ciphertext_b64: &str, password: &str) -> Result<String, Box<dyn Error>> {
+pub fn decrypt(ciphertext_b64: &str, password: &str) -> Result<String> {
     let key = derive_key(password);
     let iv = [0u8; 16];
 
