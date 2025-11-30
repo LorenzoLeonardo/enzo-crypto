@@ -26,8 +26,7 @@ fn derive_key_scrypt(password: &str, salt: &[u8]) -> Result<Vec<u8>> {
         SCRYPT_P,
         SCRYPT_MAXMEM,
         &mut key,
-    )
-    .map_err(|e| anyhow!("scrypt failed: {e}"))?;
+    )?;
     log::info!(
         "Derived key (hex): {}",
         key.iter()
@@ -43,14 +42,13 @@ pub fn encrypt_base64(plaintext: &[u8], password: &str) -> Result<String> {
     // generate salt and iv
     let mut salt = [0u8; SALT_LEN];
     let mut iv = [0u8; IV_LEN];
-    rand_bytes(&mut salt).map_err(|e| anyhow!("rand salt failed: {e}"))?;
-    rand_bytes(&mut iv).map_err(|e| anyhow!("rand iv failed: {e}"))?;
+    rand_bytes(&mut salt)?;
+    rand_bytes(&mut iv)?;
 
     let key = derive_key_scrypt(password, &salt)?;
 
     let cipher = Cipher::aes_256_cbc();
-    let ciphertext = encrypt(cipher, &key, Some(&iv), plaintext)
-        .map_err(|e| anyhow!("encryption failed: {e}"))?;
+    let ciphertext = encrypt(cipher, &key, Some(&iv), plaintext)?;
 
     // pack salt || iv || ciphertext
     let mut packed = Vec::with_capacity(SALT_LEN + IV_LEN + ciphertext.len());
@@ -63,9 +61,7 @@ pub fn encrypt_base64(plaintext: &[u8], password: &str) -> Result<String> {
 
 /// Decrypt Base64(salt || iv || ciphertext) with password -> returns plaintext bytes
 pub fn decrypt_base64(b64: &str, password: &str) -> Result<Vec<u8>> {
-    let raw = general_purpose::STANDARD
-        .decode(b64)
-        .map_err(|e| anyhow!("base64 decode failed: {e}"))?;
+    let raw = general_purpose::STANDARD.decode(b64)?;
 
     if raw.len() < SALT_LEN + IV_LEN {
         return Err(anyhow!("input too short"));
@@ -78,8 +74,7 @@ pub fn decrypt_base64(b64: &str, password: &str) -> Result<Vec<u8>> {
     let key = derive_key_scrypt(password, salt)?;
 
     let cipher = Cipher::aes_256_cbc();
-    let plaintext = decrypt(cipher, &key, Some(iv), ciphertext)
-        .map_err(|e| anyhow!("decryption failed: {e}"))?;
+    let plaintext = decrypt(cipher, &key, Some(iv), ciphertext)?;
 
     Ok(plaintext)
 }
