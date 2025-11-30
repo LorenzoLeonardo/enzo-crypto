@@ -1,20 +1,22 @@
 pub mod base52;
 pub mod scrypt;
 
+use std::borrow::Cow;
+
 use base64::{Engine as _, engine::general_purpose};
 
 use anyhow::Result;
 use openssl::hash::{MessageDigest, hash};
 use openssl::symm::{Cipher, Crypter, Mode};
 
-fn derive_key(password: &str) -> Vec<u8> {
+fn derive_key(password: Cow<'_, str>) -> Vec<u8> {
     // SHA-256 hash of password
     hash(MessageDigest::sha256(), password.as_bytes())
         .expect("SHA256 hash failed")
         .to_vec()
 }
 
-pub fn encrypt(plaintext: &str, password: &str) -> Result<String> {
+pub fn encrypt(plaintext: Cow<'_, str>, password: Cow<'_, str>) -> Result<String> {
     let key = derive_key(password);
     let iv = [0u8; 16]; // 16 zero bytes IV
 
@@ -32,13 +34,13 @@ pub fn encrypt(plaintext: &str, password: &str) -> Result<String> {
     Ok(general_purpose::STANDARD.encode(&ciphertext))
 }
 
-pub fn decrypt(ciphertext_b64: &str, password: &str) -> Result<String> {
+pub fn decrypt(ciphertext_b64: Cow<'_, str>, password: Cow<'_, str>) -> Result<String> {
     let key = derive_key(password);
     let iv = [0u8; 16];
 
     let cipher = Cipher::aes_256_cbc();
 
-    let ciphertext = general_purpose::STANDARD.decode(ciphertext_b64)?;
+    let ciphertext = general_purpose::STANDARD.decode(ciphertext_b64.as_bytes())?;
 
     let mut crypter = Crypter::new(cipher, Mode::Decrypt, &key, Some(&iv))?;
     crypter.pad(true);

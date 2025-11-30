@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 const BASE52_ALPHABET: &[u8; 52] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 pub struct Base52Codec;
@@ -58,7 +60,7 @@ impl Base52Codec {
         String::from_utf8(result).unwrap()
     }
 
-    pub fn decode(&self, input: &str) -> Result<Vec<u8>, String>
+    pub fn decode(&self, input: Cow<'_, str>) -> Result<Vec<u8>, String>
     where
         Self: Send + Sync,
     {
@@ -113,7 +115,7 @@ mod tests {
         let input: &[u8] = &[];
         let encoded = codec.encode(input);
         assert_eq!(encoded, ""); // empty input encoded as empty string ""
-        let decoded = codec.decode(&encoded).unwrap();
+        let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
         assert_eq!(decoded, Vec::<u8>::new());
     }
 
@@ -123,7 +125,7 @@ mod tests {
         let input = vec![0, 0, 0, 0];
         let encoded = codec.encode(&input);
         assert_eq!(encoded, "AAAA"); // 4 leading zeros => "AAAA"
-        let decoded = codec.decode(&encoded).unwrap();
+        let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
         assert_eq!(decoded, input);
     }
 
@@ -133,7 +135,7 @@ mod tests {
         for b in 0u8..=255 {
             let input = [b];
             let encoded = codec.encode(input);
-            let decoded = codec.decode(&encoded).unwrap();
+            let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
             assert_eq!(decoded, input, "Failed for byte value: {b}");
         }
     }
@@ -144,7 +146,7 @@ mod tests {
 
         let input = b"Hello, Base52!";
         let encoded = codec.encode(input);
-        let decoded = codec.decode(&encoded).unwrap();
+        let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
         assert_eq!(decoded, input);
     }
 
@@ -158,7 +160,7 @@ mod tests {
             let mut input = vec![0u8; *size];
             rng.fill_bytes(&mut input);
             let encoded = codec.encode(&input);
-            let decoded = codec.decode(&encoded).unwrap();
+            let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
             assert_eq!(decoded, input, "Failed for size: {size}");
         }
     }
@@ -170,7 +172,7 @@ mod tests {
         let invalid_inputs = ["Hello123", "Hello World!", "ABCD$%^", "abc\u{2603}def"];
 
         for &input in &invalid_inputs {
-            let result = codec.decode(input);
+            let result = codec.decode(std::borrow::Cow::Borrowed(input));
             assert!(result.is_err(), "Invalid input '{input}' should error");
         }
     }
@@ -191,7 +193,7 @@ mod tests {
 
         for &input in test_cases {
             let encoded = codec.encode(input);
-            let decoded = codec.decode(&encoded).unwrap();
+            let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
 
             if input.iter().all(|&b| b == 0) {
                 assert_eq!(

@@ -79,10 +79,10 @@ impl Crypto {
     }
 
     /// Base64 decode helper
-    fn decode_base64(input: &str) -> Value {
+    fn decode_base64(input: Cow<'_, str>) -> Value {
         log::info!("Decoding base64 input: {input}");
         let res = general_purpose::STANDARD
-            .decode(input)
+            .decode(input.as_bytes())
             .map_err(|e| e.to_string())
             .and_then(|bytes| String::from_utf8(bytes).map_err(|e| e.to_string()));
 
@@ -90,9 +90,9 @@ impl Crypto {
     }
 
     /// Base64 encode helper
-    fn encode_base64(input: &str) -> Value {
+    fn encode_base64(input: Cow<'_, str>) -> Value {
         log::info!("Encoding base64 input: {input}");
-        CryptoResult::success(general_purpose::STANDARD.encode(input)).into()
+        CryptoResult::success(general_purpose::STANDARD.encode(input.as_bytes())).into()
     }
 
     /// Require passphrase or return error JSON with caller-provided error code
@@ -108,7 +108,7 @@ impl Crypto {
     }
 
     /// Base52 decode helper
-    fn decode_base52(input: &str) -> Value {
+    fn decode_base52(input: Cow<'_, str>) -> Value {
         log::info!("Decoding base52 input: {input}");
         let codec = Base52Codec;
 
@@ -121,10 +121,10 @@ impl Crypto {
     }
 
     /// Base52 encode helper
-    fn encode_base52(input: &str) -> Value {
+    fn encode_base52(input: Cow<'_, str>) -> Value {
         log::info!("Encoding base52 input: {input}");
         let codec = Base52Codec;
-        CryptoResult::success(codec.encode(input)).into()
+        CryptoResult::success(codec.encode(input.as_bytes())).into()
     }
 }
 
@@ -139,15 +139,15 @@ impl SharedObject for Crypto {
         };
 
         match method {
-            "decode" => Crypto::decode_base64(&param.input),
-            "encode" => Crypto::encode_base64(&param.input),
+            "decode" => Crypto::decode_base64(param.input),
+            "encode" => Crypto::encode_base64(param.input),
             "encrypt" => {
                 log::info!("Encrypting input: {}", param.input);
                 if let Some(err) = Crypto::require_passphrase(&param.passphrase, Code::EncryptError)
                 {
                     return err.into();
                 }
-                Crypto::wrap_result(encrypt(&param.input, &param.passphrase), Code::EncryptError)
+                Crypto::wrap_result(encrypt(param.input, param.passphrase), Code::EncryptError)
             }
             "decrypt" => {
                 log::info!("Decrypting input: {}", param.input);
@@ -155,10 +155,10 @@ impl SharedObject for Crypto {
                 {
                     return err.into();
                 }
-                Crypto::wrap_result(decrypt(&param.input, &param.passphrase), Code::DecryptError)
+                Crypto::wrap_result(decrypt(param.input, param.passphrase), Code::DecryptError)
             }
-            "decode52" => Crypto::decode_base52(&param.input),
-            "encode52" => Crypto::encode_base52(&param.input),
+            "decode52" => Crypto::decode_base52(param.input),
+            "encode52" => Crypto::encode_base52(param.input),
             "scrypt-encrypt" => {
                 log::info!("Encrypting input: {}", param.input);
                 if let Some(err) = Crypto::require_passphrase(&param.passphrase, Code::EncryptError)
@@ -262,21 +262,21 @@ mod tests {
 
     #[test]
     fn decode_base64_good() {
-        let v = Crypto::decode_base64("SGVsbG8gd29ybGQ=");
+        let v = Crypto::decode_base64(std::borrow::Cow::Borrowed("SGVsbG8gd29ybGQ="));
         assert_eq!(v["code"].as_i64().unwrap(), 0);
         assert_eq!(v["result"].as_str().unwrap(), "Hello world");
     }
 
     #[test]
     fn decode_base64_empty() {
-        let v = Crypto::decode_base64("");
+        let v = Crypto::decode_base64(std::borrow::Cow::Borrowed(""));
         assert_eq!(v["code"].as_i64().unwrap(), 0);
         assert_eq!(v["result"].as_str().unwrap(), "");
     }
 
     #[test]
     fn decode_base64_invalid_base64() {
-        let v = Crypto::decode_base64("!!!!");
+        let v = Crypto::decode_base64(std::borrow::Cow::Borrowed("!!!!"));
         assert_eq!(v["code"].as_i64().unwrap(), Code::DecodeError as i64);
         assert!(v.get("error").and_then(|e| e.as_str()).is_some());
     }
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn decode_base64_invalid_utf8() {
         // "/w==" decodes to 0xff which is invalid UTF-8
-        let v = Crypto::decode_base64("/w==");
+        let v = Crypto::decode_base64(std::borrow::Cow::Borrowed("/w=="));
         assert_eq!(v["code"].as_i64().unwrap(), Code::DecodeError as i64);
         let err = v["error"].as_str().unwrap();
         assert!(err.contains("invalid utf-8"));
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn encode_base64_good() {
-        let v = Crypto::encode_base64("hello");
+        let v = Crypto::encode_base64(std::borrow::Cow::Borrowed("hello"));
         assert_eq!(v["code"].as_i64().unwrap(), 0);
         assert_eq!(v["result"].as_str().unwrap(), "aGVsbG8=");
     }
@@ -303,19 +303,19 @@ mod tests {
         let src = "The quick brown fox 🦊";
         let encoded = codec.encode(src);
         // encode_base52 should match codec.encode
-        let got_enc = Crypto::encode_base52(src);
+        let got_enc = Crypto::encode_base52(std::borrow::Cow::Borrowed(src));
         assert_eq!(got_enc["code"].as_i64().unwrap(), 0);
         assert_eq!(got_enc["result"].as_str().unwrap(), encoded);
 
         // decode_base52 should return original string
-        let got_dec = Crypto::decode_base52(&encoded);
+        let got_dec = Crypto::decode_base52(std::borrow::Cow::Borrowed(&encoded));
         assert_eq!(got_dec["code"].as_i64().unwrap(), 0);
         assert_eq!(got_dec["result"].as_str().unwrap(), src);
     }
 
     #[test]
     fn decode_base52_invalid() {
-        let v = Crypto::decode_base52("!!invalid!!");
+        let v = Crypto::decode_base52(std::borrow::Cow::Borrowed("!!invalid!!"));
         assert_eq!(v["code"].as_i64().unwrap(), Code::DecodeError as i64);
         assert!(v.get("error").and_then(|e| e.as_str()).is_some());
     }

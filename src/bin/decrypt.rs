@@ -1,5 +1,5 @@
 use enzo_crypto::decrypt;
-use std::error::Error; // assuming your crate name is enzo_crypto
+use std::{borrow::Cow, error::Error}; // assuming your crate name is enzo_crypto
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ciphertext_b64 = &args[1];
     let password = &args[2];
 
-    let decrypted = decrypt(ciphertext_b64, password)?;
+    let decrypted = decrypt(Cow::Borrowed(ciphertext_b64), Cow::Borrowed(password))?;
     log::info!("[Decrypted Text] {decrypted}");
 
     Ok(())
