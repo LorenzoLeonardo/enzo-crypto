@@ -3,7 +3,7 @@ name: Rust CI (Windows)
 on:
   pull_request:
     branches:
-      - '*'
+      - "*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -11,18 +11,40 @@ env:
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
-      - name: Install OpenSSL
+
+      # 1. Restore cache for Chocolatey packages and OpenSSL install
+      - name: Restore OpenSSL cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\ProgramData\chocolatey\lib\openssl
+            C:\Program Files\OpenSSL
+          key: openssl-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            openssl-${{ runner.os }}
+
+      # 2. Install only if not already cached
+      - name: Install OpenSSL (if missing)
         shell: pwsh
         run: |
-          choco install openssl --params "/InstallDir:C:\Program Files" --no-progress -y 
+          if (!(Test-Path "C:\Program Files\OpenSSL")) {
+            Write-Host "OpenSSL not found, installing..."
+            choco install openssl --params "/InstallDir:C:\Program Files" --no-progress -y
+          } else {
+            Write-Host "Using cached OpenSSL installation."
+          }
+
           dir "C:\Program Files\OpenSSL\lib\VC"
           dir "C:\Program Files\OpenSSL\lib\VC\x64"
+
           echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
           echo "OPENSSL_INCLUDE_DIR=C:\Program Files\OpenSSL\include" >> $env:GITHUB_ENV
           echo "OPENSSL_LIB_DIR=C:\Program Files\OpenSSL\lib\VC\x64\MT" >> $env:GITHUB_ENV
 
+      # Rust checks
       - run: cargo fmt --all -- --check
       - run: cargo clippy -- --deny warnings
       - run: cargo build --verbose
