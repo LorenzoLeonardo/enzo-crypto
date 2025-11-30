@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{borrow::Cow, path::Path};
 
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose};
@@ -8,13 +8,56 @@ use fern::Dispatch;
 use ipc_broker::worker::{SharedObject, WorkerBuilder};
 use log::LevelFilter;
 use serde_json::{Value, json};
+use serde_repr::{Deserialize_repr, Serialize_repr};
+
+#[repr(i32)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Default)]
+enum Code {
+    #[default]
+    Success = 0,
+    Error = -1,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CryptoResult<'a> {
+    code: Code,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<Cow<'a, str>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<Cow<'a, str>>,
+}
+
+impl<'a> CryptoResult<'a> {
+    fn success(result: String) -> Self {
+        CryptoResult {
+            code: Code::Success,
+            result: Some(Cow::Owned(result.to_owned())),
+            error: None,
+        }
+    }
+
+    fn error(error: String) -> Self {
+        CryptoResult {
+            code: Code::Error,
+            result: None,
+            error: Some(Cow::Owned(error.to_owned())),
+        }
+    }
+}
+
+// Convert CryptoResult into serde_json::Value reliably
+impl<'a> From<CryptoResult<'a>> for Value {
+    fn from(cr: CryptoResult<'a>) -> Self {
+        serde_json::to_value(cr).unwrap()
+    }
+}
 
 #[derive(serde::Deserialize)]
-struct Param {
+struct Param<'a> {
     #[serde(default)]
-    input: String,
+    input: Cow<'a, str>,
     #[serde(default)]
-    passphrase: String,
+    passphrase: Cow<'a, str>,
 }
 
 struct Crypto;
@@ -23,11 +66,11 @@ impl Crypto {
     /// Wrap Ok(T) or Err(E) into a JSON result
     fn wrap_result<T, E>(res: Result<T, E>) -> Value
     where
-        T: serde::Serialize,
+        T: std::fmt::Display,
         E: std::fmt::Display,
     {
-        res.map(|v| json!({ "result": v }))
-            .unwrap_or_else(|e| json!({ "error": e.to_string() }))
+        res.map(|v| CryptoResult::success(v.to_string()).into())
+            .unwrap_or_else(|e| CryptoResult::error(e.to_string()).into())
     }
 
     /// Base64 decode helper
@@ -43,15 +86,13 @@ impl Crypto {
     /// Base64 encode helper
     fn encode_base64(input: &str) -> Value {
         log::info!("Encoding base64 input: {input}");
-        json!({
-            "result": general_purpose::STANDARD.encode(input)
-        })
+        CryptoResult::success(general_purpose::STANDARD.encode(input)).into()
     }
 
     /// Require passphrase or return error JSON
     fn require_passphrase(passphrase: &str) -> Option<Value> {
         if passphrase.is_empty() {
-            Some(json!({ "error": "Passphrase is required" }))
+            Some(CryptoResult::error("Passphrase is required".to_string()).into())
         } else {
             None
         }
@@ -73,11 +114,7 @@ impl Crypto {
     fn encode_base52(input: &str) -> Value {
         log::info!("Encoding base52 input: {input}");
         let codec = Base52Codec;
-
-        json!({
-            "result": codec
-                .encode(input)
-        })
+        CryptoResult::success(codec.encode(input)).into()
     }
 }
 
