@@ -1,5 +1,6 @@
 use base64::{Engine, engine::general_purpose};
-use std::{error::Error, fs, path::Path}; // assuming your crate name is enzo_crypto
+use enzo_crypto::util;
+use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -7,19 +8,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     if args.len() != 2 {
         eprintln!("Usage: {} <plaintext>", args[0]);
         std::process::exit(1);
-    }
-
-    let path = Path::new(&args[1]);
-
-    let data: Vec<u8> = if path.exists() && path.is_file() {
-        // Definitely a real file
-        fs::read(path)?
-    } else {
-        // Not a real file → treat as literal string
-        args[1].as_bytes().to_vec()
     };
-
-    println!("[Encoded Text] {}", general_purpose::STANDARD.encode(data));
+    println!(
+        "[Encoded Text] {}",
+        general_purpose::STANDARD.encode(util::data_source(&args[1])?)
+    );
 
     Ok(())
 }
