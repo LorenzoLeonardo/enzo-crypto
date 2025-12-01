@@ -49,13 +49,22 @@ impl<'a> CryptoResult<'a> {
             error: Some(error),
         }
     }
+
+    fn contruct_error_json() -> Value {
+        json!({
+            "code": Code::ParseError,
+            "error": "Failed to construct error JSON"
+        })
+    }
 }
 
 // Convert CryptoResult into serde_json::Value reliably
 impl<'a> From<CryptoResult<'a>> for Value {
     fn from(cr: CryptoResult<'a>) -> Self {
-        serde_json::to_value(cr)
-            .unwrap_or_else(|e| json!({ "code": Code::ParseError, "error": e.to_string() }))
+        serde_json::to_value(cr).unwrap_or_else(|e| {
+            log::error!("Failed to serialize CryptoResult to JSON: {e}");
+            CryptoResult::contruct_error_json()
+        })
     }
 }
 
@@ -396,5 +405,126 @@ mod tests {
         let v = Crypto::wrap_result::<&str>(Err("boom"), Code::DecryptError);
         assert_eq!(v["code"].as_i64().unwrap(), Code::DecryptError as i64);
         assert_eq!(v["error"].as_str().unwrap(), "boom");
+    }
+
+    #[test]
+    fn cryptoresult_structure_is_stable() {
+        use std::collections::HashSet;
+
+        // Success case => only "code" and "result" keys present
+        let s = CryptoResult::success(std::borrow::Cow::Borrowed("ok"));
+        let v: Value = s.into();
+        let keys: HashSet<_> = v
+            .as_object()
+            .expect("expected object")
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(
+            keys.len(),
+            2,
+            "CryptoResult::success should have exactly 2 keys"
+        );
+        assert!(keys.contains("code"));
+        assert!(keys.contains("result"));
+        assert!(!keys.contains("error"));
+
+        // Error case => only "code" and "error" keys present
+        let e = CryptoResult::error(Code::DecryptError, std::borrow::Cow::Borrowed("err"));
+        let v: Value = e.into();
+        let keys: HashSet<_> = v
+            .as_object()
+            .expect("expected object")
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(
+            keys.len(),
+            2,
+            "CryptoResult::error should have exactly 2 keys"
+        );
+        assert!(keys.contains("code"));
+        assert!(keys.contains("error"));
+        assert!(!keys.contains("result"));
+
+        // Explicit "only code" instance => exactly "code" key present
+        let only_code = CryptoResult {
+            code: Code::Success,
+            result: None,
+            error: None,
+        };
+        let v: Value = only_code.into();
+        let keys: HashSet<_> = v
+            .as_object()
+            .expect("expected object")
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(
+            keys.len(),
+            1,
+            "CryptoResult with no result/error should have exactly 1 key"
+        );
+        assert!(keys.contains("code"));
+    }
+
+    #[test]
+    fn cryptoresult_exact_fields() {
+        use std::collections::HashSet;
+
+        // Success -> exactly {"code", "result"}
+        let s = CryptoResult::success(std::borrow::Cow::Borrowed("ok"));
+        let v: Value = s.into();
+        let keys: HashSet<_> = v
+            .as_object()
+            .expect("expected object")
+            .keys()
+            .cloned()
+            .collect();
+        let expected_success: HashSet<String> = ["code", "result"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            keys, expected_success,
+            "CryptoResult::success fields changed — update tests"
+        );
+
+        // Error -> exactly {"code", "error"}
+        let e = CryptoResult::error(Code::DecryptError, std::borrow::Cow::Borrowed("err"));
+        let v: Value = e.into();
+        let keys: HashSet<_> = v
+            .as_object()
+            .expect("expected object")
+            .keys()
+            .cloned()
+            .collect();
+        let expected_err: HashSet<String> = ["code", "error"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            keys, expected_err,
+            "CryptoResult::error fields changed — update tests"
+        );
+
+        // Only code -> exactly {"code"}
+        let only_code = CryptoResult {
+            code: Code::Success,
+            result: None,
+            error: None,
+        };
+        let v: Value = only_code.into();
+        let keys: HashSet<_> = v
+            .as_object()
+            .expect("expected object")
+            .keys()
+            .cloned()
+            .collect();
+        let expected_only: HashSet<String> = ["code"].into_iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            keys, expected_only,
+            "CryptoResult only-code fields changed — update tests"
+        );
     }
 }
