@@ -1,5 +1,6 @@
 pub mod base52;
 pub mod scrypt;
+pub mod util;
 
 use std::borrow::Cow;
 
