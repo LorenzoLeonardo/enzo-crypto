@@ -3,16 +3,17 @@ use std::{borrow::Cow, path::Path};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose};
 use chrono::Local;
-use enzo_crypto::{base52::Base52Codec, decrypt, encrypt, scrypt};
 use fern::Dispatch;
 use ipc_broker::worker::{SharedObject, WorkerBuilder};
 use log::LevelFilter;
 use serde_json::{Value, json};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+use enzo_crypto::{base52::Base52Codec, decrypt, encrypt, scrypt};
+
 #[repr(i32)]
 #[derive(Serialize_repr, Deserialize_repr, Debug, Default)]
-enum Code {
+pub enum Code {
     #[default]
     Success = 0,
     DecryptError = -1,
@@ -25,7 +26,7 @@ enum Code {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct CryptoOK<'a> {
+pub struct CryptoOK<'a> {
     code: Code,
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<Cow<'a, str>>,
@@ -44,7 +45,7 @@ impl<'a> CryptoOK<'a> {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct CryptoError<'a> {
+pub struct CryptoError<'a> {
     code: Code,
     error: Cow<'a, str>,
 }
@@ -75,6 +76,12 @@ impl<'a> From<CryptoOK<'a>> for serde_json::Value {
 }
 
 pub struct CryptoResult<'a>(Result<CryptoOK<'a>, CryptoError<'a>>);
+
+impl<'a> CryptoResult<'a> {
+    pub fn into_result(self) -> Result<CryptoOK<'a>, CryptoError<'a>> {
+        self.0
+    }
+}
 
 impl<'a> From<CryptoResult<'a>> for Value {
     fn from(result: CryptoResult<'a>) -> Self {
