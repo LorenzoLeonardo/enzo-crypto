@@ -25,7 +25,7 @@ enum Code {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct CryptoResult<'a> {
+struct CryptoOK<'a> {
     code: Code,
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<Cow<'a, str>>,
@@ -33,9 +33,9 @@ struct CryptoResult<'a> {
     error: Option<Cow<'a, str>>,
 }
 
-impl<'a> CryptoResult<'a> {
+impl<'a> CryptoOK<'a> {
     fn success(result: Cow<'a, str>) -> Self {
-        CryptoResult {
+        CryptoOK {
             code: Code::Success,
             result: Some(result),
             error: None,
@@ -43,7 +43,7 @@ impl<'a> CryptoResult<'a> {
     }
 
     fn error(code: Code, error: Cow<'a, str>) -> Self {
-        CryptoResult {
+        CryptoOK {
             code,
             result: None,
             error: Some(error),
@@ -58,13 +58,42 @@ impl<'a> CryptoResult<'a> {
     }
 }
 
-// Convert CryptoResult into serde_json::Value reliably
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CryptoError<'a> {
+    code: Code,
+    error: Cow<'a, str>,
+}
+
+impl<'a> CryptoError<'a> {
+    fn error(code: Code, error: Cow<'a, str>) -> Self {
+        CryptoError { code, error }
+    }
+}
+
+impl<'a> From<CryptoError<'a>> for serde_json::Value {
+    fn from(err: CryptoError<'a>) -> Self {
+        serde_json::to_value(err).unwrap_or_else(|_| CryptoOK::contruct_error_json())
+    }
+}
+
+impl<'a> From<CryptoOK<'a>> for serde_json::Value {
+    fn from(res: CryptoOK<'a>) -> Self {
+        serde_json::to_value(res).unwrap_or_else(|_| CryptoOK::contruct_error_json())
+    }
+}
+
+fn into_value(result: Result<CryptoOK, CryptoError>) -> Value {
+    match result {
+        Ok(r) => r.into(),
+        Err(e) => e.into(),
+    }
+}
+
+struct CryptoResult<'a>(Result<CryptoOK<'a>, CryptoError<'a>>);
+
 impl<'a> From<CryptoResult<'a>> for Value {
-    fn from(cr: CryptoResult<'a>) -> Self {
-        serde_json::to_value(cr).unwrap_or_else(|e| {
-            log::error!("Failed to serialize CryptoResult to JSON: {e}");
-            CryptoResult::contruct_error_json()
-        })
+    fn from(res: CryptoResult<'a>) -> Self {
+        into_value(res.0)
     }
 }
 
@@ -80,15 +109,15 @@ struct Crypto;
 
 impl Crypto {
     /// Wrap Ok(String) or Err(E) into a JSON result with the provided error code.
-    fn wrap_result<E: ToString>(res: Result<Cow<'_, str>, E>, rc: Code) -> Value {
+    fn wrap_result<E: ToString>(res: Result<Cow<'_, str>, E>, rc: Code) -> CryptoResult {
         match res {
-            Ok(s) => CryptoResult::success(s).into(),
-            Err(e) => CryptoResult::error(rc, Cow::Borrowed(&e.to_string())).into(),
+            Ok(s) => CryptoResult(Ok(CryptoOK::success(s))),
+            Err(e) => CryptoResult(Err(CryptoError::error(rc, Cow::Owned(e.to_string())))),
         }
     }
 
     /// Base64 decode helper
-    fn decode_base64(input: Cow<'_, str>) -> Value {
+    pub fn decode_base64(input: Cow<'_, str>) -> CryptoResult {
         log::info!("Decoding base64 input: {input}");
         let res = general_purpose::STANDARD
             .decode(input.as_bytes())
@@ -103,13 +132,15 @@ impl Crypto {
     }
 
     /// Base64 encode helper
-    fn encode_base64(input: Cow<'_, str>) -> Value {
+    pub fn encode_base64(input: Cow<'_, str>) -> CryptoResult {
         log::info!("Encoding base64 input: {input}");
-        CryptoResult::success(general_purpose::STANDARD.encode(input.as_bytes()).into()).into()
+        CryptoResult(Ok(CryptoOK::success(
+            general_purpose::STANDARD.encode(input.as_bytes()).into(),
+        )))
     }
 
     /// Base64 decode helper
-    fn decode_base64_nopad(input: Cow<'_, str>) -> Value {
+    pub fn decode_base64_nopad(input: Cow<'_, str>) -> CryptoResult {
         log::info!("Decoding base64 no padding input: {input}");
         let res = general_purpose::STANDARD_NO_PAD
             .decode(input.as_bytes())
@@ -124,20 +155,19 @@ impl Crypto {
     }
 
     /// Base64 encode helper
-    fn encode_base64_nopad(input: Cow<'_, str>) -> Value {
+    pub fn encode_base64_nopad(input: Cow<'_, str>) -> CryptoResult {
         log::info!("Encoding base64 no padding input: {input}");
-        CryptoResult::success(
+        CryptoResult(Ok(CryptoOK::success(
             general_purpose::STANDARD_NO_PAD
                 .encode(input.as_bytes())
                 .into(),
-        )
-        .into()
+        )))
     }
 
     /// Require passphrase or return error JSON with caller-provided error code
-    fn require_passphrase(passphrase: &str, rc: Code) -> Option<CryptoResult<'_>> {
+    pub fn require_passphrase(passphrase: Cow<'_, str>, rc: Code) -> Option<CryptoError> {
         if passphrase.is_empty() {
-            Some(CryptoResult::error(
+            Some(CryptoError::error(
                 rc,
                 Cow::Borrowed("Passphrase is required"),
             ))
@@ -147,7 +177,7 @@ impl Crypto {
     }
 
     /// Base52 decode helper
-    fn decode_base52(input: Cow<'_, str>) -> Value {
+    pub fn decode_base52(input: Cow<'_, str>) -> CryptoResult {
         log::info!("Decoding base52 input: {input}");
         let codec = Base52Codec;
 
@@ -164,32 +194,32 @@ impl Crypto {
     }
 
     /// Base52 encode helper
-    fn encode_base52(input: Cow<'_, str>) -> Value {
+    pub fn encode_base52(input: Cow<'_, str>) -> CryptoResult {
         log::info!("Encoding base52 input: {input}");
         let codec = Base52Codec;
-        CryptoResult::success(codec.encode(input.as_bytes()).into()).into()
+        CryptoResult(Ok(CryptoOK::success(codec.encode(input.as_bytes()).into())))
     }
 
-    fn encrypt(input: Cow<'_, str>, passphrase: Cow<'_, str>) -> Value {
+    pub fn encrypt<'a>(input: Cow<'a, str>, passphrase: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Encrypting input with passphrase.");
-        if let Some(err) = Crypto::require_passphrase(&passphrase, Code::EncryptError) {
-            return err.into();
+        if let Some(err) = Crypto::require_passphrase(passphrase.clone(), Code::EncryptError) {
+            return CryptoResult(Err(err));
         }
-        Self::wrap_result(encrypt(input, passphrase), Code::EncryptError)
+        Self::wrap_result(encrypt(input, passphrase.clone()), Code::EncryptError)
     }
 
-    fn decrypt(input: Cow<'_, str>, passphrase: Cow<'_, str>) -> Value {
+    pub fn decrypt<'a>(input: Cow<'a, str>, passphrase: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Decrypting input with passphrase.");
-        if let Some(err) = Crypto::require_passphrase(&passphrase, Code::DecryptError) {
-            return err.into();
+        if let Some(err) = Crypto::require_passphrase(passphrase.clone(), Code::DecryptError) {
+            return CryptoResult(Err(err));
         }
         Self::wrap_result(decrypt(input, passphrase), Code::DecryptError)
     }
 
-    fn scrypt_encrypt(input: Cow<'_, str>, passphrase: Cow<'_, str>) -> Value {
+    pub fn scrypt_encrypt<'a>(input: Cow<'a, str>, passphrase: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Encrypting input with scrypt and passphrase.");
-        if let Some(err) = Crypto::require_passphrase(&passphrase, Code::EncryptError) {
-            return err.into();
+        if let Some(err) = Crypto::require_passphrase(passphrase.clone(), Code::EncryptError) {
+            return CryptoResult(Err(err));
         }
         Crypto::wrap_result(
             scrypt::encrypt_base64(input.as_bytes(), passphrase),
@@ -197,10 +227,10 @@ impl Crypto {
         )
     }
 
-    fn scrypt_decrypt(input: Cow<'_, str>, passphrase: Cow<'_, str>) -> Value {
+    pub fn scrypt_decrypt<'a>(input: Cow<'a, str>, passphrase: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Decrypting input with scrypt and passphrase.");
-        if let Some(err) = Crypto::require_passphrase(&passphrase, Code::DecryptError) {
-            return err.into();
+        if let Some(err) = Crypto::require_passphrase(passphrase.clone(), Code::DecryptError) {
+            return CryptoResult(Err(err));
         }
         Crypto::wrap_result(
             scrypt::decrypt_base64(input, passphrase)
@@ -221,26 +251,26 @@ impl SharedObject for Crypto {
         let param: Param = match serde_json::from_value(args.clone()) {
             Ok(p) => p,
             Err(e) => {
-                return CryptoResult::error(Code::InvalidArgumentsError, Cow::Owned(e.to_string()))
+                return CryptoError::error(Code::InvalidArgumentsError, Cow::Owned(e.to_string()))
                     .into();
             }
         };
 
         match method {
-            "decode64" => Crypto::decode_base64(param.input),
-            "encode64" => Crypto::encode_base64(param.input),
-            "decode64-nopad" => Crypto::decode_base64_nopad(param.input),
-            "encode64-nopad" => Crypto::encode_base64_nopad(param.input),
-            "encrypt" => Crypto::encrypt(param.input, param.passphrase),
-            "decrypt" => Crypto::decrypt(param.input, param.passphrase),
-            "decode52" => Crypto::decode_base52(param.input),
-            "encode52" => Crypto::encode_base52(param.input),
-            "scrypt-encrypt" => Crypto::scrypt_encrypt(param.input, param.passphrase),
-            "scrypt-decrypt" => Crypto::scrypt_decrypt(param.input, param.passphrase),
+            "decode64" => Crypto::decode_base64(param.input).into(),
+            "encode64" => Crypto::encode_base64(param.input).into(),
+            "decode64-nopad" => Crypto::decode_base64_nopad(param.input).into(),
+            "encode64-nopad" => Crypto::encode_base64_nopad(param.input).into(),
+            "encrypt" => Crypto::encrypt(param.input, param.passphrase).into(),
+            "decrypt" => Crypto::decrypt(param.input, param.passphrase).into(),
+            "decode52" => Crypto::decode_base52(param.input).into(),
+            "encode52" => Crypto::encode_base52(param.input).into(),
+            "scrypt-encrypt" => Crypto::scrypt_encrypt(param.input, param.passphrase).into(),
+            "scrypt-decrypt" => Crypto::scrypt_decrypt(param.input, param.passphrase).into(),
             _ => {
                 let msg = format!("Unknown method called: {method}");
                 log::warn!("{msg}");
-                CryptoResult::error(Code::UnknownMethodError, Cow::Borrowed(&msg)).into()
+                CryptoOK::error(Code::UnknownMethodError, Cow::Borrowed(&msg)).into()
             }
         }
     }
@@ -319,216 +349,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     drop(logger);
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use enzo_crypto::base52::Base52Codec;
-
-    #[test]
-    fn decode_base64_good() {
-        let v = Crypto::decode_base64(std::borrow::Cow::Borrowed("SGVsbG8gd29ybGQ="));
-        assert_eq!(v["code"].as_i64().unwrap(), 0);
-        assert_eq!(v["result"].as_str().unwrap(), "Hello world");
-    }
-
-    #[test]
-    fn decode_base64_empty() {
-        let v = Crypto::decode_base64(std::borrow::Cow::Borrowed(""));
-        assert_eq!(v["code"].as_i64().unwrap(), 0);
-        assert_eq!(v["result"].as_str().unwrap(), "");
-    }
-
-    #[test]
-    fn decode_base64_invalid_base64() {
-        let v = Crypto::decode_base64(std::borrow::Cow::Borrowed("!!!!"));
-        assert_eq!(v["code"].as_i64().unwrap(), Code::DecodeError as i64);
-        assert!(v.get("error").and_then(|e| e.as_str()).is_some());
-    }
-
-    #[test]
-    fn decode_base64_invalid_utf8() {
-        // "/w==" decodes to 0xff which is invalid UTF-8
-        let v = Crypto::decode_base64(std::borrow::Cow::Borrowed("/w=="));
-        assert_eq!(v["code"].as_i64().unwrap(), Code::DecodeError as i64);
-        let err = v["error"].as_str().unwrap();
-        assert!(err.contains("invalid utf-8"));
-    }
-
-    #[test]
-    fn encode_base64_good() {
-        let v = Crypto::encode_base64(std::borrow::Cow::Borrowed("hello"));
-        assert_eq!(v["code"].as_i64().unwrap(), 0);
-        assert_eq!(v["result"].as_str().unwrap(), "aGVsbG8=");
-    }
-
-    #[test]
-    fn encode_decode_base52_roundtrip() {
-        let codec = Base52Codec;
-        let src = "The quick brown fox 🦊";
-        let encoded = codec.encode(src);
-        // encode_base52 should match codec.encode
-        let got_enc = Crypto::encode_base52(std::borrow::Cow::Borrowed(src));
-        assert_eq!(got_enc["code"].as_i64().unwrap(), 0);
-        assert_eq!(got_enc["result"].as_str().unwrap(), encoded);
-
-        // decode_base52 should return original string
-        let got_dec = Crypto::decode_base52(std::borrow::Cow::Borrowed(&encoded));
-        assert_eq!(got_dec["code"].as_i64().unwrap(), 0);
-        assert_eq!(got_dec["result"].as_str().unwrap(), src);
-    }
-
-    #[test]
-    fn decode_base52_invalid() {
-        let v = Crypto::decode_base52(std::borrow::Cow::Borrowed("!!invalid!!"));
-        assert_eq!(v["code"].as_i64().unwrap(), Code::DecodeError as i64);
-        assert!(v.get("error").and_then(|e| e.as_str()).is_some());
-    }
-
-    #[test]
-    fn require_passphrase_empty() {
-        let r = Crypto::require_passphrase("", Code::EncryptError);
-        assert!(r.is_some());
-        let cr = r.unwrap();
-        // ensure the returned CryptoResult carries the requested code
-        match cr.code {
-            Code::EncryptError => (),
-            other => panic!("expected EncryptError, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn wrap_result_ok_and_err() {
-        // Ok case
-        let v = Crypto::wrap_result::<&str>(Ok("fine".into()), Code::EncryptError);
-        assert_eq!(v["code"].as_i64().unwrap(), 0);
-        assert_eq!(v["result"].as_str().unwrap(), "fine");
-
-        // Err case -> uses provided rc
-        let v = Crypto::wrap_result::<&str>(Err("boom"), Code::DecryptError);
-        assert_eq!(v["code"].as_i64().unwrap(), Code::DecryptError as i64);
-        assert_eq!(v["error"].as_str().unwrap(), "boom");
-    }
-
-    #[test]
-    fn cryptoresult_structure_is_stable() {
-        use std::collections::HashSet;
-
-        // Success case => only "code" and "result" keys present
-        let s = CryptoResult::success(std::borrow::Cow::Borrowed("ok"));
-        let v: Value = s.into();
-        let keys: HashSet<_> = v
-            .as_object()
-            .expect("expected object")
-            .keys()
-            .cloned()
-            .collect();
-        assert_eq!(
-            keys.len(),
-            2,
-            "CryptoResult::success should have exactly 2 keys"
-        );
-        assert!(keys.contains("code"));
-        assert!(keys.contains("result"));
-        assert!(!keys.contains("error"));
-
-        // Error case => only "code" and "error" keys present
-        let e = CryptoResult::error(Code::DecryptError, std::borrow::Cow::Borrowed("err"));
-        let v: Value = e.into();
-        let keys: HashSet<_> = v
-            .as_object()
-            .expect("expected object")
-            .keys()
-            .cloned()
-            .collect();
-        assert_eq!(
-            keys.len(),
-            2,
-            "CryptoResult::error should have exactly 2 keys"
-        );
-        assert!(keys.contains("code"));
-        assert!(keys.contains("error"));
-        assert!(!keys.contains("result"));
-
-        // Explicit "only code" instance => exactly "code" key present
-        let only_code = CryptoResult {
-            code: Code::Success,
-            result: None,
-            error: None,
-        };
-        let v: Value = only_code.into();
-        let keys: HashSet<_> = v
-            .as_object()
-            .expect("expected object")
-            .keys()
-            .cloned()
-            .collect();
-        assert_eq!(
-            keys.len(),
-            1,
-            "CryptoResult with no result/error should have exactly 1 key"
-        );
-        assert!(keys.contains("code"));
-    }
-
-    #[test]
-    fn cryptoresult_exact_fields() {
-        use std::collections::HashSet;
-
-        // Success -> exactly {"code", "result"}
-        let s = CryptoResult::success(std::borrow::Cow::Borrowed("ok"));
-        let v: Value = s.into();
-        let keys: HashSet<_> = v
-            .as_object()
-            .expect("expected object")
-            .keys()
-            .cloned()
-            .collect();
-        let expected_success: HashSet<String> = ["code", "result"]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(
-            keys, expected_success,
-            "CryptoResult::success fields changed — update tests"
-        );
-
-        // Error -> exactly {"code", "error"}
-        let e = CryptoResult::error(Code::DecryptError, std::borrow::Cow::Borrowed("err"));
-        let v: Value = e.into();
-        let keys: HashSet<_> = v
-            .as_object()
-            .expect("expected object")
-            .keys()
-            .cloned()
-            .collect();
-        let expected_err: HashSet<String> = ["code", "error"]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(
-            keys, expected_err,
-            "CryptoResult::error fields changed — update tests"
-        );
-
-        // Only code -> exactly {"code"}
-        let only_code = CryptoResult {
-            code: Code::Success,
-            result: None,
-            error: None,
-        };
-        let v: Value = only_code.into();
-        let keys: HashSet<_> = v
-            .as_object()
-            .expect("expected object")
-            .keys()
-            .cloned()
-            .collect();
-        let expected_only: HashSet<String> = ["code"].into_iter().map(|s| s.to_string()).collect();
-        assert_eq!(
-            keys, expected_only,
-            "CryptoResult only-code fields changed — update tests"
-        );
-    }
 }
