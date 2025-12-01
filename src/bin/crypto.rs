@@ -41,13 +41,6 @@ impl<'a> CryptoOK<'a> {
             error: None,
         }
     }
-
-    fn contruct_error_json() -> Value {
-        json!({
-            "code": Code::ParseError,
-            "error": "Failed to construct error JSON"
-        })
-    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -60,17 +53,24 @@ impl<'a> CryptoError<'a> {
     fn error(code: Code, error: Cow<'a, str>) -> Self {
         CryptoError { code, error }
     }
+
+    fn construct_error_json<E: ToString>(e: E) -> Value {
+        json!({
+            "code": Code::ParseError,
+            "error": e.to_string(),
+        })
+    }
 }
 
 impl<'a> From<CryptoError<'a>> for serde_json::Value {
     fn from(err: CryptoError<'a>) -> Self {
-        serde_json::to_value(err).unwrap_or_else(|_| CryptoOK::contruct_error_json())
+        serde_json::to_value(err).unwrap_or_else(CryptoError::construct_error_json)
     }
 }
 
 impl<'a> From<CryptoOK<'a>> for serde_json::Value {
     fn from(res: CryptoOK<'a>) -> Self {
-        serde_json::to_value(res).unwrap_or_else(|_| CryptoOK::contruct_error_json())
+        serde_json::to_value(res).unwrap_or_else(CryptoError::construct_error_json)
     }
 }
 
