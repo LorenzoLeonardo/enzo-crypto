@@ -152,7 +152,7 @@ impl Crypto {
         let codec = Base52Codec;
 
         let res = codec
-            .decode(input)
+            .decode(input.as_bytes())
             .map_err(|e| Cow::Owned::<String>(e.to_string()))
             .and_then(|bytes| {
                 String::from_utf8(bytes)

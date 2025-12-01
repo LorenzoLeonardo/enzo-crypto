@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 const BASE52_ALPHABET: &[u8; 52] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 pub struct Base52Codec;
@@ -60,16 +58,19 @@ impl Base52Codec {
         String::from_utf8(result).unwrap()
     }
 
-    pub fn decode(&self, input: Cow<'_, str>) -> Result<Vec<u8>, String>
+    pub fn decode<T>(&self, input: T) -> Result<Vec<u8>, String>
     where
+        T: AsRef<[u8]>,
         Self: Send + Sync,
     {
-        // Count leading 'A's (zero digit) in input
-        let leading_zeros = input.chars().take_while(|&c| c == 'A').count();
+        let bytes = input.as_ref();
 
-        let mut num = Vec::new(); // Will hold big int in big-endian order
+        // Count leading 'A's (zero digit)
+        let leading_zeros = bytes.iter().take_while(|&&c| c == b'A').count();
 
-        for &c in input.as_bytes().iter().skip(leading_zeros) {
+        let mut num = Vec::new(); // big-endian big integer
+
+        for &c in bytes.iter().skip(leading_zeros) {
             let value = match BASE52_ALPHABET.iter().position(|&x| x == c) {
                 Some(i) => i as u32,
                 None => return Err(format!("Invalid character: {}", c as char)),
@@ -78,24 +79,24 @@ impl Base52Codec {
             let mut carry = value;
             let mut new_num = Vec::with_capacity(num.len() + 1);
 
-            // Multiply current number by 52 and add carry
-            // num is big-endian, so we process from right (least significant byte) to left
+            // Multiply big-int by 52 and add carry
             for &digit in num.iter().rev() {
-                let accumulator = digit as u32 * 52 + carry;
-                new_num.push((accumulator & 0xFF) as u8);
-                carry = accumulator >> 8;
+                let acc = digit as u32 * 52 + carry;
+                new_num.push((acc & 0xFF) as u8);
+                carry = acc >> 8;
             }
+
             while carry > 0 {
                 new_num.push((carry & 0xFF) as u8);
                 carry >>= 8;
             }
 
-            // new_num is currently little-endian, reverse to big-endian
+            // Convert little-endian → big-endian
             new_num.reverse();
             num = new_num;
         }
 
-        // Prepend leading zeros as bytes
+        // Prepend leading zero bytes
         let mut result = vec![0u8; leading_zeros];
         result.extend(num);
 
@@ -115,7 +116,7 @@ mod tests {
         let input: &[u8] = &[];
         let encoded = codec.encode(input);
         assert_eq!(encoded, ""); // empty input encoded as empty string ""
-        let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
+        let decoded = codec.decode(encoded.as_bytes()).unwrap();
         assert_eq!(decoded, Vec::<u8>::new());
     }
 
@@ -125,7 +126,7 @@ mod tests {
         let input = vec![0, 0, 0, 0];
         let encoded = codec.encode(&input);
         assert_eq!(encoded, "AAAA"); // 4 leading zeros => "AAAA"
-        let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
+        let decoded = codec.decode(encoded.as_bytes()).unwrap();
         assert_eq!(decoded, input);
     }
 
@@ -135,7 +136,7 @@ mod tests {
         for b in 0u8..=255 {
             let input = [b];
             let encoded = codec.encode(input);
-            let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
+            let decoded = codec.decode(encoded.as_bytes()).unwrap();
             assert_eq!(decoded, input, "Failed for byte value: {b}");
         }
     }
@@ -146,7 +147,7 @@ mod tests {
 
         let input = b"Hello, Base52!";
         let encoded = codec.encode(input);
-        let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
+        let decoded = codec.decode(encoded.as_bytes()).unwrap();
         assert_eq!(decoded, input);
     }
 
@@ -160,7 +161,7 @@ mod tests {
             let mut input = vec![0u8; *size];
             rng.fill_bytes(&mut input);
             let encoded = codec.encode(&input);
-            let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
+            let decoded = codec.decode(encoded.as_bytes()).unwrap();
             assert_eq!(decoded, input, "Failed for size: {size}");
         }
     }
@@ -172,7 +173,7 @@ mod tests {
         let invalid_inputs = ["Hello123", "Hello World!", "ABCD$%^", "abc\u{2603}def"];
 
         for &input in &invalid_inputs {
-            let result = codec.decode(std::borrow::Cow::Borrowed(input));
+            let result = codec.decode(input.as_bytes());
             assert!(result.is_err(), "Invalid input '{input}' should error");
         }
     }
@@ -193,7 +194,7 @@ mod tests {
 
         for &input in test_cases {
             let encoded = codec.encode(input);
-            let decoded = codec.decode(std::borrow::Cow::Borrowed(&encoded)).unwrap();
+            let decoded = codec.decode(encoded.as_bytes()).unwrap();
 
             if input.iter().all(|&b| b == 0) {
                 assert_eq!(
