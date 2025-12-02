@@ -7,7 +7,12 @@ use ipc_broker::worker::SharedObject;
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::{base52::Base52Codec, decrypt, encrypt, scrypt};
+use crate::{
+    base52::Base52Codec,
+    decrypt, encrypt,
+    result::{Fallback, GenericResult},
+    scrypt,
+};
 
 #[repr(i32)]
 #[derive(Serialize_repr, Deserialize_repr, Debug, Default)]
@@ -50,41 +55,19 @@ impl<'a> CryptoError<'a> {
     }
 }
 
-pub trait FallbackError {
-    fn fallback(err: serde_json::Error) -> serde_json::Value {
-        serde_json::Value::String(err.to_string())
-    }
-}
-
-pub struct GenericResult<T, E, F>(pub Result<T, E>, std::marker::PhantomData<F>);
-
-impl<T, E, F> From<GenericResult<T, E, std::marker::PhantomData<F>>> for serde_json::Value
-where
-    T: serde::Serialize,
-    E: serde::Serialize,
-    F: FallbackError,
-{
-    fn from(res: GenericResult<T, E, std::marker::PhantomData<F>>) -> Self {
-        match res.0 {
-            Ok(v) => serde_json::to_value(v).unwrap_or_else(F::fallback),
-            Err(e) => serde_json::to_value(e).unwrap_or_else(F::fallback),
-        }
-    }
-}
-
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct DefaultFallback;
-impl FallbackError for DefaultFallback {
+impl Fallback for DefaultFallback {
     fn fallback(err: serde_json::Error) -> serde_json::Value {
         serde_json::json!({
             "code": Code::ParseError,
-            "result": format!("Failed to serialize success result: {}", err),
+            "result": err.
+            to_string(),
         })
     }
 }
 
-type GenericCryptoResult<'a> =
-    GenericResult<CryptoOK<'a>, CryptoError<'a>, std::marker::PhantomData<DefaultFallback>>;
+type GenericCryptoResult<'a> = GenericResult<CryptoOK<'a>, CryptoError<'a>, DefaultFallback>;
 
 #[derive(serde::Deserialize)]
 struct Param<'a> {
@@ -103,11 +86,8 @@ impl Crypto {
         rc: Code,
     ) -> GenericCryptoResult<'a> {
         match res {
-            Ok(s) => GenericResult(Ok(CryptoOK::success(s)), std::marker::PhantomData),
-            Err(e) => GenericResult(
-                Err(CryptoError::error(rc, Cow::Owned(e.to_string()))),
-                std::marker::PhantomData,
-            ),
+            Ok(s) => GenericCryptoResult::ok(CryptoOK::success(s)),
+            Err(e) => GenericCryptoResult::err(CryptoError::error(rc, Cow::Owned(e.to_string()))),
         }
     }
 
@@ -141,12 +121,9 @@ impl Crypto {
     /// Base64 encode helper
     pub fn encode_base64<'a>(input: Cow<'a, str>) -> GenericCryptoResult<'a> {
         log::info!("Encoding base64 input: {input}");
-        GenericResult(
-            Ok(CryptoOK::success(
-                general_purpose::STANDARD.encode(input.as_bytes()).into(),
-            )),
-            std::marker::PhantomData,
-        )
+        GenericCryptoResult::ok(CryptoOK::success(
+            general_purpose::STANDARD.encode(input.as_bytes()).into(),
+        ))
     }
 
     /// Base64 decode helper
@@ -167,14 +144,11 @@ impl Crypto {
     /// Base64 encode helper
     pub fn encode_base64_nopad<'a>(input: Cow<'a, str>) -> GenericCryptoResult<'a> {
         log::info!("Encoding base64 no padding input: {input}");
-        GenericResult(
-            Ok(CryptoOK::success(
-                general_purpose::STANDARD_NO_PAD
-                    .encode(input.as_bytes())
-                    .into(),
-            )),
-            std::marker::PhantomData,
-        )
+        GenericResult::ok(CryptoOK::success(
+            general_purpose::STANDARD_NO_PAD
+                .encode(input.as_bytes())
+                .into(),
+        ))
     }
 
     /// Base52 decode helper
@@ -198,16 +172,13 @@ impl Crypto {
     pub fn encode_base52<'a>(input: Cow<'a, str>) -> GenericCryptoResult<'a> {
         log::info!("Encoding base52 input: {input}");
         let codec = Base52Codec;
-        GenericResult(
-            Ok(CryptoOK::success(codec.encode(input.as_bytes()).into())),
-            std::marker::PhantomData,
-        )
+        GenericResult::ok(CryptoOK::success(codec.encode(input.as_bytes()).into()))
     }
 
     pub fn encrypt<'a>(input: Cow<'a, str>, passphrase: Cow<'a, str>) -> GenericCryptoResult<'a> {
         log::info!("Encrypting input with passphrase.");
         if let Some(err) = Crypto::require_passphrase(passphrase.clone(), Code::EncryptError) {
-            return GenericResult(Err(err), std::marker::PhantomData);
+            return GenericResult::err(err);
         }
         Self::wrap_result(encrypt(input, passphrase.clone()), Code::EncryptError)
     }
@@ -215,7 +186,7 @@ impl Crypto {
     pub fn decrypt<'a>(input: Cow<'a, str>, passphrase: Cow<'a, str>) -> GenericCryptoResult<'a> {
         log::info!("Decrypting input with passphrase.");
         if let Some(err) = Crypto::require_passphrase(passphrase.clone(), Code::DecryptError) {
-            return GenericResult(Err(err), std::marker::PhantomData);
+            return GenericCryptoResult::err(err);
         }
         Self::wrap_result(decrypt(input, passphrase), Code::DecryptError)
     }
@@ -226,7 +197,7 @@ impl Crypto {
     ) -> GenericCryptoResult<'a> {
         log::info!("Encrypting input with scrypt and passphrase.");
         if let Some(err) = Crypto::require_passphrase(passphrase.clone(), Code::EncryptError) {
-            return GenericResult(Err(err), std::marker::PhantomData);
+            return GenericCryptoResult::err(err);
         }
         Crypto::wrap_result(
             scrypt::encrypt_base64(input.as_bytes(), passphrase),
@@ -240,7 +211,7 @@ impl Crypto {
     ) -> GenericCryptoResult<'a> {
         log::info!("Decrypting input with scrypt and passphrase.");
         if let Some(err) = Crypto::require_passphrase(passphrase.clone(), Code::DecryptError) {
-            return GenericResult(Err(err), std::marker::PhantomData);
+            return GenericCryptoResult::err(err);
         }
         Crypto::wrap_result(
             scrypt::decrypt_base64(input, passphrase)
@@ -261,17 +232,10 @@ impl SharedObject for Crypto {
         let param: Param = match serde_json::from_value(args.clone()) {
             Ok(p) => p,
             Err(e) => {
-                return GenericResult::<
-                    CryptoOK<'_>,
-                    CryptoError<'_>,
-                    std::marker::PhantomData<DefaultFallback>,
-                >(
-                    Err(CryptoError::error(
-                        Code::InvalidArgumentsError,
-                        Cow::Owned(e.to_string()),
-                    )),
-                    std::marker::PhantomData,
-                )
+                return GenericCryptoResult::err(CryptoError::error(
+                    Code::InvalidArgumentsError,
+                    Cow::Owned(e.to_string()),
+                ))
                 .into();
             }
         };
@@ -290,17 +254,10 @@ impl SharedObject for Crypto {
             _ => {
                 let msg = format!("Unknown method called: {method}");
                 log::warn!("{msg}");
-                GenericResult::<
-                    CryptoOK<'_>,
-                    CryptoError<'_>,
-                    std::marker::PhantomData<DefaultFallback>,
-                >(
-                    Err(CryptoError::error(
-                        Code::UnknownMethodError,
-                        Cow::Borrowed(&msg),
-                    )),
-                    std::marker::PhantomData,
-                )
+                GenericCryptoResult::err(CryptoError::error(
+                    Code::UnknownMethodError,
+                    Cow::Borrowed(&msg),
+                ))
                 .into()
             }
         }
