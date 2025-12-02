@@ -26,7 +26,7 @@ pub enum Code {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct CryptoOK<'a> {
     code: Code,
-    result: Cow<'a, str>,
+    pub result: Cow<'a, str>,
 }
 
 impl<'a> CryptoOK<'a> {
@@ -98,7 +98,7 @@ pub struct Crypto;
 
 impl Crypto {
     /// Wrap Ok(String) or Err(E) into a JSON result with the provided error code.
-    fn wrap_result<E: ToString>(res: Result<Cow<'_, str>, E>, rc: Code) -> CryptoResult {
+    fn wrap_result<'a, E: ToString>(res: Result<Cow<'a, str>, E>, rc: Code) -> CryptoResult<'a> {
         match res {
             Ok(s) => CryptoResult(Ok(CryptoOK::success(s))),
             Err(e) => CryptoResult(Err(CryptoError::error(rc, Cow::Owned(e.to_string())))),
@@ -106,7 +106,7 @@ impl Crypto {
     }
 
     /// Require passphrase or return error JSON with caller-provided error code
-    fn require_passphrase(passphrase: Cow<'_, str>, rc: Code) -> Option<CryptoError> {
+    fn require_passphrase<'a>(passphrase: Cow<'a, str>, rc: Code) -> Option<CryptoError<'a>> {
         if passphrase.is_empty() {
             Some(CryptoError::error(
                 rc,
@@ -118,7 +118,7 @@ impl Crypto {
     }
 
     /// Base64 decode helper
-    pub fn decode_base64(input: Cow<'_, str>) -> CryptoResult {
+    pub fn decode_base64<'a>(input: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Decoding base64 input: {input}");
         let res = general_purpose::STANDARD
             .decode(input.as_bytes())
@@ -133,7 +133,7 @@ impl Crypto {
     }
 
     /// Base64 encode helper
-    pub fn encode_base64(input: Cow<'_, str>) -> CryptoResult {
+    pub fn encode_base64<'a>(input: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Encoding base64 input: {input}");
         CryptoResult(Ok(CryptoOK::success(
             general_purpose::STANDARD.encode(input.as_bytes()).into(),
@@ -141,7 +141,7 @@ impl Crypto {
     }
 
     /// Base64 decode helper
-    pub fn decode_base64_nopad(input: Cow<'_, str>) -> CryptoResult {
+    pub fn decode_base64_nopad<'a>(input: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Decoding base64 no padding input: {input}");
         let res = general_purpose::STANDARD_NO_PAD
             .decode(input.as_bytes())
@@ -156,7 +156,7 @@ impl Crypto {
     }
 
     /// Base64 encode helper
-    pub fn encode_base64_nopad(input: Cow<'_, str>) -> CryptoResult {
+    pub fn encode_base64_nopad<'a>(input: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Encoding base64 no padding input: {input}");
         CryptoResult(Ok(CryptoOK::success(
             general_purpose::STANDARD_NO_PAD
@@ -166,7 +166,7 @@ impl Crypto {
     }
 
     /// Base52 decode helper
-    pub fn decode_base52(input: Cow<'_, str>) -> CryptoResult {
+    pub fn decode_base52<'a>(input: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Decoding base52 input: {input}");
         let codec = Base52Codec;
 
@@ -183,7 +183,7 @@ impl Crypto {
     }
 
     /// Base52 encode helper
-    pub fn encode_base52(input: Cow<'_, str>) -> CryptoResult {
+    pub fn encode_base52<'a>(input: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Encoding base52 input: {input}");
         let codec = Base52Codec;
         CryptoResult(Ok(CryptoOK::success(codec.encode(input.as_bytes()).into())))
