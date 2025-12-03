@@ -7,7 +7,7 @@ use ipc_broker::worker::SharedObject;
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::{base52::Base52Codec, decrypt, encrypt, result::GenericResult, scrypt};
+use crate::{base52::Base52Codec, decrypt, encrypt, result::JsonResult, scrypt};
 
 #[repr(i32)]
 #[derive(Serialize_repr, Deserialize_repr, Debug, Default)]
@@ -50,7 +50,7 @@ impl<'a> CryptoError<'a> {
     }
 }
 
-type CryptoResult<'a> = GenericResult<CryptoOK<'a>, CryptoError<'a>>;
+type CryptoResult<'a> = JsonResult<CryptoOK<'a>, CryptoError<'a>>;
 
 #[derive(serde::Deserialize)]
 struct Param<'a> {
@@ -159,7 +159,7 @@ impl Crypto {
     pub fn encode_base52<'a>(input: Cow<'a, str>) -> CryptoResult<'a> {
         log::info!("Encoding base52 input: {input}");
         let codec = Base52Codec;
-        GenericResult::Ok(CryptoOK::new(codec.encode(input.as_bytes()).into()))
+        JsonResult::Ok(CryptoOK::new(codec.encode(input.as_bytes()).into()))
     }
 
     pub fn encrypt<'a>(input: Cow<'a, str>, passphrase: Cow<'a, str>) -> CryptoResult<'a> {

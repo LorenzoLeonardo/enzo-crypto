@@ -2,25 +2,25 @@ use serde::de::{DeserializeOwned, Error};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
-pub enum GenericResult<T, E> {
+pub enum JsonResult<T, E> {
     Ok(T),
     Err(E),
 }
 
-impl<T, E> From<GenericResult<T, E>> for serde_json::Value
+impl<T, E> From<JsonResult<T, E>> for serde_json::Value
 where
     T: serde::Serialize,
     E: serde::Serialize,
 {
-    fn from(res: GenericResult<T, E>) -> Self {
+    fn from(res: JsonResult<T, E>) -> Self {
         match res {
-            GenericResult::Ok(v) => serde_json::json!(v),
-            GenericResult::Err(e) => serde_json::json!(e),
+            JsonResult::Ok(v) => serde_json::json!(v),
+            JsonResult::Err(e) => serde_json::json!(e),
         }
     }
 }
 
-impl<T, E> TryFrom<serde_json::Value> for GenericResult<T, E>
+impl<T, E> TryFrom<serde_json::Value> for JsonResult<T, E>
 where
     T: DeserializeOwned,
     E: DeserializeOwned,
@@ -32,8 +32,8 @@ where
         let e_res = serde_json::from_value::<E>(value);
 
         match (t_res, e_res) {
-            (Ok(v), _) => Ok(GenericResult::Ok(v)),
-            (_, Ok(e)) => Ok(GenericResult::Err(e)),
+            (Ok(v), _) => Ok(JsonResult::Ok(v)),
+            (_, Ok(e)) => Ok(JsonResult::Err(e)),
             (Err(t_err), Err(e_err)) => {
                 let t_name = std::any::type_name::<T>();
                 let e_name = std::any::type_name::<E>();
@@ -64,26 +64,26 @@ mod tests {
 
     #[test]
     fn test_good_case_ok_t() {
-        let original: GenericResult<GoodT, BadE> = GenericResult::Ok(GoodT { x: 123 });
+        let original: JsonResult<GoodT, BadE> = JsonResult::Ok(GoodT { x: 123 });
 
         let json = serde_json::to_value(&original).unwrap();
-        let parsed = GenericResult::<GoodT, BadE>::try_from(json).unwrap();
+        let parsed = JsonResult::<GoodT, BadE>::try_from(json).unwrap();
 
         match parsed {
-            GenericResult::Ok(v) => assert_eq!(v, GoodT { x: 123 }),
+            JsonResult::Ok(v) => assert_eq!(v, GoodT { x: 123 }),
             _ => panic!("Expected Ok(T)"),
         }
     }
 
     #[test]
     fn test_good_case_err_e() {
-        let original: GenericResult<GoodT, BadE> = GenericResult::Err(BadE { msg: "fail".into() });
+        let original: JsonResult<GoodT, BadE> = JsonResult::Err(BadE { msg: "fail".into() });
 
         let json = serde_json::to_value(&original).unwrap();
-        let parsed = GenericResult::<GoodT, BadE>::try_from(json).unwrap();
+        let parsed = JsonResult::<GoodT, BadE>::try_from(json).unwrap();
 
         match parsed {
-            GenericResult::Err(e) => assert_eq!(e, BadE { msg: "fail".into() }),
+            JsonResult::Err(e) => assert_eq!(e, BadE { msg: "fail".into() }),
             _ => panic!("Expected Err(E)"),
         }
     }
@@ -92,7 +92,7 @@ mod tests {
     fn test_bad_case_neither_matches() {
         let json = serde_json::json!({ "something": 9999 });
 
-        let result = GenericResult::<GoodT, BadE>::try_from(json);
+        let result = JsonResult::<GoodT, BadE>::try_from(json);
 
         assert!(result.is_err());
 
@@ -104,26 +104,26 @@ mod tests {
 
     #[test]
     fn test_round_trip_t() {
-        let original: GenericResult<GoodT, BadE> = GenericResult::Ok(GoodT { x: 42 });
+        let original: JsonResult<GoodT, BadE> = JsonResult::Ok(GoodT { x: 42 });
 
         let json: serde_json::Value = original.into();
-        let parsed = GenericResult::<GoodT, BadE>::try_from(json).unwrap();
+        let parsed = JsonResult::<GoodT, BadE>::try_from(json).unwrap();
 
         match parsed {
-            GenericResult::Ok(v) => assert_eq!(v.x, 42),
+            JsonResult::Ok(v) => assert_eq!(v.x, 42),
             _ => panic!("Round trip for T failed"),
         }
     }
 
     #[test]
     fn test_round_trip_e() {
-        let original: GenericResult<GoodT, BadE> = GenericResult::Err(BadE { msg: "boom".into() });
+        let original: JsonResult<GoodT, BadE> = JsonResult::Err(BadE { msg: "boom".into() });
 
         let json: serde_json::Value = original.into();
-        let parsed = GenericResult::<GoodT, BadE>::try_from(json).unwrap();
+        let parsed = JsonResult::<GoodT, BadE>::try_from(json).unwrap();
 
         match parsed {
-            GenericResult::Err(v) => assert_eq!(v.msg, "boom"),
+            JsonResult::Err(v) => assert_eq!(v.msg, "boom"),
             _ => panic!("Round trip for E failed"),
         }
     }
@@ -133,7 +133,7 @@ mod tests {
         let json = serde_json::json!({});
 
         // Neither GoodT nor BadE should parse successfully from empty object
-        let result = GenericResult::<GoodT, BadE>::try_from(json);
+        let result = JsonResult::<GoodT, BadE>::try_from(json);
         assert!(result.is_err());
     }
 
@@ -141,7 +141,7 @@ mod tests {
     fn test_null_value() {
         let json = serde_json::json!(null);
 
-        let result = GenericResult::<GoodT, BadE>::try_from(json);
+        let result = JsonResult::<GoodT, BadE>::try_from(json);
         assert!(result.is_err());
     }
 
@@ -155,10 +155,10 @@ mod tests {
         struct StringE(String);
 
         let json = serde_json::json!(123u32);
-        let parsed = GenericResult::<NumberT, StringE>::try_from(json).unwrap();
+        let parsed = JsonResult::<NumberT, StringE>::try_from(json).unwrap();
 
         match parsed {
-            GenericResult::Ok(NumberT(n)) => assert_eq!(n, 123),
+            JsonResult::Ok(NumberT(n)) => assert_eq!(n, 123),
             _ => panic!("Expected Ok(NumberT)"),
         }
     }
@@ -172,10 +172,10 @@ mod tests {
         struct StringE(String);
 
         let json = serde_json::json!("error message");
-        let parsed = GenericResult::<NumberT, StringE>::try_from(json).unwrap();
+        let parsed = JsonResult::<NumberT, StringE>::try_from(json).unwrap();
 
         match parsed {
-            GenericResult::Err(StringE(s)) => assert_eq!(s, "error message"),
+            JsonResult::Err(StringE(s)) => assert_eq!(s, "error message"),
             _ => panic!("Expected Err(StringE)"),
         }
     }
@@ -191,10 +191,10 @@ mod tests {
         let json = serde_json::json!({ "value": 55 });
 
         // Because we try T first, expect Ok variant
-        let parsed = GenericResult::<Ambiguous, Ambiguous>::try_from(json).unwrap();
+        let parsed = JsonResult::<Ambiguous, Ambiguous>::try_from(json).unwrap();
 
         match parsed {
-            GenericResult::Ok(Ambiguous { value }) => assert_eq!(value, 55),
+            JsonResult::Ok(Ambiguous { value }) => assert_eq!(value, 55),
             _ => panic!("Expected Ok variant for ambiguous type"),
         }
     }
@@ -220,10 +220,10 @@ mod tests {
             "val": 5
         });
 
-        let parsed = GenericResult::<NestedT, NestedE>::try_from(json).unwrap();
+        let parsed = JsonResult::<NestedT, NestedE>::try_from(json).unwrap();
 
         match parsed {
-            GenericResult::Ok(n) => {
+            JsonResult::Ok(n) => {
                 assert_eq!(n.val, 5);
                 assert!(n.nested.is_some());
                 let inner = n.nested.unwrap();
@@ -239,7 +239,7 @@ mod tests {
         // JSON array will not deserialize to GoodT or BadE structs
         let json = serde_json::json!([1, 2, 3]);
 
-        let result = GenericResult::<GoodT, BadE>::try_from(json);
+        let result = JsonResult::<GoodT, BadE>::try_from(json);
         assert!(result.is_err());
     }
 
@@ -253,7 +253,7 @@ mod tests {
 
         let json = serde_json::json!("just a string");
 
-        let result = GenericResult::<ComplexType, ComplexType>::try_from(json);
+        let result = JsonResult::<ComplexType, ComplexType>::try_from(json);
         assert!(result.is_err());
 
         let err_str = result.unwrap_err().to_string();
