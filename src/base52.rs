@@ -71,7 +71,12 @@ impl Base52Codec {
         let leading_zeros = bytes.iter().take_while(|&&c| c == b'A').count();
 
         let mut num = Vec::new(); // big-endian big integer
-        for (offset, &c) in bytes.iter().skip(leading_zeros).enumerate() {
+        for (offset, &c) in bytes
+            .iter()
+            .skip(leading_zeros)
+            .enumerate()
+            .map(|(offset, c)| (offset + leading_zeros, c))
+        {
             let value = match BASE52_ALPHABET.iter().position(|&x| x == c) {
                 Some(i) => i as u32,
                 None => return Err(DecodeError::InvalidByte(offset, c)),
