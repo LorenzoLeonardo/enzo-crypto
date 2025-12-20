@@ -5,6 +5,12 @@ use enzo_crypto::crypto::Crypto;
 use fern::Dispatch;
 use ipc_broker::worker::WorkerBuilder;
 use log::LevelFilter;
+use tokio::{
+    sync::mpsc::{self, unbounded_channel},
+    time::Instant,
+};
+
+const TIMEOUT: u64 = 10;
 
 struct LogHandler;
 
@@ -71,12 +77,51 @@ impl Drop for LogHandler {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let logger = LogHandler::start();
+    let (activity_tx, activity_rx) = unbounded_channel();
 
-    WorkerBuilder::new()
-        .add("applications.crypto", Crypto)
-        .spawn()
-        .await?;
+    let (builder, shutdown) = WorkerBuilder::new()
+        .add("applications.crypto", Crypto::new(activity_tx))
+        .with_graceful_shutdown();
 
+    let handle = tokio::spawn(async move { builder.spawn().await });
+
+    tokio::spawn(async move {
+        run_with_inactivity_timeout(activity_rx).await;
+        let _ = shutdown.send(true);
+    });
+
+    handle.await??;
     drop(logger);
     Ok(())
+}
+
+async fn run_with_inactivity_timeout(mut activity_rx: mpsc::UnboundedReceiver<()>) {
+    let timeout = std::time::Duration::from_secs(TIMEOUT);
+    let mut last_activity = Instant::now();
+
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Ctrl-C received, shutting down");
+                break;
+            }
+
+            _ = tokio::time::sleep_until(last_activity + timeout) => {
+                log::warn!("No activity for {TIMEOUT} seconds, shutting down");
+                break;
+            }
+
+            msg = activity_rx.recv() => {
+                match msg {
+                    Some(()) => {
+                        last_activity = Instant::now(); // ✅ reset timer
+                    }
+                    None => {
+                        log::info!("Activity channel closed, shutting down");
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
