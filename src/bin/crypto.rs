@@ -10,7 +10,7 @@ use tokio::{
     time::Instant,
 };
 
-const TIMEOUT: u64 = 10;
+const TIMEOUT: u64 = 60;
 
 struct LogHandler;
 
