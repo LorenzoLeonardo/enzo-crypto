@@ -7,6 +7,7 @@ use ipc_broker::worker::SharedObject;
 use json_result::r#struct::JsonResult;
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{base52, decrypt, encrypt, scrypt};
 
@@ -85,9 +86,14 @@ struct Param<'a> {
     passphrase: Cow<'a, str>,
 }
 
-pub struct Crypto;
+pub struct Crypto {
+    activity_tx: UnboundedSender<()>,
+}
 
 impl Crypto {
+    pub fn new(activity_tx: UnboundedSender<()>) -> Self {
+        Self { activity_tx }
+    }
     /// Require passphrase or return error JSON with caller-provided error code
     fn require_passphrase<'a>(passphrase: Cow<'a, str>, rc: Code) -> Option<CryptoResult<'a>> {
         if passphrase.is_empty() {
@@ -253,6 +259,7 @@ impl Crypto {
 #[async_trait]
 impl SharedObject for Crypto {
     async fn call(&self, method: &str, args: &Value) -> Value {
+        let _ = self.activity_tx.send(());
         let param: Param = match serde_json::from_value(args.clone()) {
             Ok(p) => p,
             Err(e) => {
